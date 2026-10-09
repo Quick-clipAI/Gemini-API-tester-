@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="robots" content="noindex,nofollow"/>
+<title>Gemini model checker</title>
+<style>
+:root{
+  --bg:#eef1ee; --panel:#fbfcfb; --ink:#1b2227; --ink2:#55615f; --line:#c9d1cc; --accent:#0b6b6b; --accent-ink:#ffffff;
+  --pass:#1d7a46; --pass-bg:#dff2e6; --fail:#a8301f; --fail-bg:#f9e1dc; --warn:#8a5d00; --warn-bg:#faedc9; --idle:#6b7673; --idle-bg:#e3e8e5;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#0f1514; --panel:#161e1d; --ink:#e6ece9; --ink2:#9aa9a5; --line:#2b3836; --accent:#54c2b8; --accent-ink:#06201d;
+    --pass:#7fe0a4; --pass-bg:#16382a; --fail:#ff9d8c; --fail-bg:#40201b; --warn:#f2c46b; --warn-bg:#3a2e12; --idle:#9aa9a5; --idle-bg:#222d2b}
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 var(--sans)}
+main{max-width:720px;margin:0 auto;padding:20px 16px 80px}
+h1{font-size:26px;line-height:1.15;margin:8px 0 6px;letter-spacing:-.01em}
+p{margin:0 0 12px}
+.lede{color:var(--ink2);max-width:60ch}
+section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin:16px 0}
+h2{font-size:17px;margin:0 0 4px}
+.hint{color:var(--ink2);font-size:14px;margin:0 0 12px}
+label.k{display:block;font-weight:600;margin-bottom:6px}
+.keyrow{display:flex;gap:8px;flex-wrap:wrap}
+input[type=password],input[type=text]{flex:1 1 220px;min-width:0;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:15px var(--mono)}
+button{font:600 15px var(--sans);padding:12px 16px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button:disabled{opacity:.5;cursor:not-allowed}
+button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.note{font-size:14px;color:var(--ink2)}
+.note strong{color:var(--ink)}
+.status{font-size:14px;margin-top:10px;min-height:1.4em}
+.status.err{color:var(--fail)}
+ul.models{list-style:none;margin:12px 0 0;padding:0}
+ul.models li{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+ul.models li:first-child{border-top:0}
+ul.models input{width:20px;height:20px;flex:none}
+ul.models label{flex:1;min-width:0;font:14px var(--mono);overflow-wrap:anywhere}
+.result{border-top:1px solid var(--line);padding:12px 0}
+.result:first-child{border-top:0}
+.result h3{font:600 14px var(--mono);margin:0 0 8px;overflow-wrap:anywhere}
+.tests{display:grid;gap:6px}
+.t{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-size:14px}
+.pill{display:inline-block;min-width:92px;text-align:center;padding:2px 8px;border-radius:999px;font-size:13px;font-weight:600}
+.pill.pass{background:var(--pass-bg);color:var(--pass)}
+.pill.fail{background:var(--fail-bg);color:var(--fail)}
+.pill.warn{background:var(--warn-bg);color:var(--warn)}
+.pill.idle{background:var(--idle-bg);color:var(--idle)}
+.t .why{color:var(--ink2);flex:1 1 200px;overflow-wrap:anywhere}
+.verdict{border:2px solid var(--accent);border-radius:10px;padding:14px;margin-top:14px}
+.verdict h3{margin:0 0 6px;font-size:16px}
+.verdict code{font-family:var(--mono);background:var(--bg);padding:2px 6px;border-radius:5px;overflow-wrap:anywhere}
+.progress{font:14px var(--mono);color:var(--ink2);margin-top:10px}
+details{margin-top:12px}
+summary{cursor:pointer;font-weight:600}
+@media (prefers-reduced-motion:no-preference){button{transition:background-color .15s}}
+</style>
+</head>
+<body>
+<main>
+  <h1>Gemini model checker</h1>
+  <p class="lede">Paste your Gemini API key and see which models actually answer for that key, and which of them can use live web search. Use the result to pick the model names for your site.</p>
+
+  <section aria-labelledby="s1">
+    <h2 id="s1">1. Your key</h2>
+    <p class="hint">The key is used only in this open tab and sent only to Google. It is never saved. Close the tab when you are done.</p>
+    <label class="k" for="key">Gemini API key</label>
+    <div class="keyrow">
+      <input id="key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste key here"/>
+      <button id="load" class="primary" type="button">Find my models</button>
+    </div>
+    <div id="loadStatus" class="status" role="status" aria-live="polite"></div>
+  </section>
+
+  <section id="pick" aria-labelledby="s2" hidden>
+    <h2 id="s2">2. Choose what to test</h2>
+    <p class="hint">Each model uses up to 2 of that model's own free requests (one plain answer, one with web search). Models that look stable are ticked.</p>
+    <p class="note" id="count"></p>
+    <ul class="models" id="models"></ul>
+    <label class="note" style="display:flex;gap:8px;align-items:center;margin-top:12px"><input type="checkbox" id="showAll"/> Show every model that can generate text, including previews and experiments</label>
+    <label class="note" style="display:flex;gap:8px;align-items:center;margin-top:8px"><input type="checkbox" id="doSearch" checked/> Also test web search (recommended, your site needs it)</label>
+    <div class="row">
+      <button id="run" class="primary" type="button">Test selected models</button>
+      <button id="stop" type="button" disabled>Stop</button>
+    </div>
+    <div id="progress" class="progress" role="status" aria-live="polite"></div>
+  </section>
+
+  <section id="out" aria-labelledby="s3" hidden>
+    <h2 id="s3">3. Results</h2>
+    <div id="results"></div>
+    <div id="verdict"></div>
+    <div class="row"><button id="copy" type="button">Copy results</button></div>
+    <details>
+      <summary>How to read the results</summary>
+      <p class="note"><strong>Works</strong>: the model answered. <strong>Not available</strong>: Google no longer serves it, or not to this key. <strong>Limit reached</strong>: it exists but this key has no requests left for it today, or no free quota at all. <strong>Rejected</strong>: Google refused the request (the reason is shown). <strong>Answered, no search</strong>: it replied but did not use web search.</p>
+    </details>
+  </section>
+</main>
+
+<script>
+(function(){
+  'use strict';
+  var BASE = 'https://generativelanguage.googleapis.com/v1beta/';
+  var $ = function(id){ return document.getElementById(id); };
+  var allModels = [];      // [{id, label, text, stable}]
+  var results = {};        // id -> {plain:{state,why,ms}, search:{...}}
+  var order = [];
+  var abortCtl = null, running = false;
+
+  function setStatus(el, msg, isErr){ el.textContent = msg || ''; el.className = 'status' + (isErr ? ' err' : ''); }
+
+  async function gfetch(path, key, body, signal){
+    var opts = { headers: { 'x-goog-api-key': key }, signal: signal };
+    if (body){ opts.method = 'POST'; opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    var t0 = performance.now();
+    var res = await fetch(BASE + path, opts);
+    var json = await res.json().catch(function(){ return {}; });
+    return { status: res.status, json: json, ms: Math.round(performance.now() - t0) };
+  }
+
+  function errMsg(json){ return (json && json.error && json.error.message) ? String(json.error.message).replace(/\s+/g,' ').slice(0,220) : ''; }
+
+  function classify(r, wantSearch){
+    var s = r.status, m = errMsg(r.json);
+    if (s === 200){
+      var cand = r.json.candidates && r.json.candidates[0];
+      var text = cand && cand.content && cand.content.parts ? cand.content.parts.map(function(p){ return p.text || ''; }).join('').trim() : '';
+      if (!text) return { state:'fail', label:'Empty reply', why:'Google answered but with no text' + (cand && cand.finishReason ? ' (' + cand.finishReason + ')' : ''), ms:r.ms };
+      if (wantSearch){
+        var g = cand.groundingMetadata;
+        var used = g && ((g.webSearchQueries && g.webSearchQueries.length) || (g.groundingChunks && g.groundingChunks.length));
+        return used ? { state:'pass', label:'Works + search', why:r.ms + ' ms', ms:r.ms }
+                    : { state:'warn', label:'No search', why:'Answered without using web search (' + r.ms + ' ms)', ms:r.ms };
+      }
+      return { state:'pass', label:'Works', why:r.ms + ' ms', ms:r.ms };
+    }
+    if (s === 404) return { state:'fail', label:'Not available', why:m || 'Model not found for this key', ms:r.ms };
+    if (s === 429){
+      var zero = /limit:\s*0/i.test(m) || /free tier.*not available|billing/i.test(m);
+      return { state:'warn', label:'Limit reached', why:(zero ? 'No free quota for this model on this key. ' : 'Used up for now. ') + m, ms:r.ms };
+    }
+    if (s === 400 || s === 422) return { state:'fail', label:'Rejected', why:m || ('HTTP ' + s), ms:r.ms };
+    if (s === 401 || s === 403) return { state:'fail', label:'Key problem', why:m || ('HTTP ' + s), ms:r.ms, fatal:true };
+    if (s >= 500) return { state:'warn', label:'Google error', why:'HTTP ' + s + ' ' + m, ms:r.ms };
+    return { state:'fail', label:'HTTP ' + s, why:m, ms:r.ms };
+  }
+
+  // ---------- step 1: list models ----------
+  $('load').addEventListener('click', async function(){
+    var key = $('key').value.trim();
+    if (!key){ setStatus($('loadStatus'), 'Paste your key first.', true); return; }
+    $('load').disabled = true; setStatus($('loadStatus'), 'Asking Google which models this key can use…');
+    try {
+      var list = [], token = '', guard = 0;
+      do {
+        var r = await gfetch('models?pageSize=200' + (token ? '&pageToken=' + encodeURIComponent(token) : ''), key);
+        if (r.status !== 200){
+          var hint = (r.status === 400 || r.status === 401 || r.status === 403) ? ' Check that you pasted the whole key.' : '';
+          throw new Error('Google replied ' + r.status + ': ' + (errMsg(r.json) || 'no details') + hint);
+        }
+        list = list.concat(r.json.models || []); token = r.json.nextPageToken || ''; guard++;
+      } while (token && guard < 10);
+      allModels = list.filter(function(m){ return (m.supportedGenerationMethods || []).indexOf('generateContent') !== -1; })
+        .map(function(m){
+          var id = String(m.name || '').replace(/^models\//,'');
+          var text = /^(gemini|gemma)/.test(id) && !/embedding|tts|image|live|audio|robotics|computer|veo|imagen|native|aqa|vision/.test(id);
+          var stable = /(flash|pro)/.test(id) && !/(preview|exp|thinking)/.test(id);
+          return { id:id, label:m.displayName || id, text:text, stable:stable };
+        });
+      if (!allModels.length) throw new Error('This key can see no models that generate text.');
+      $('pick').hidden = false; renderPicker(); setStatus($('loadStatus'), 'Found ' + allModels.length + ' models for this key.');
+    } catch (e){
+      setStatus($('loadStatus'), (e && e.message) ? e.message : 'Could not reach Google from this page. Check your connection and try again.', true);
+    }
+    $('load').disabled = false;
+  });
+
+  function visibleModels(){
+    var all = $('showAll').checked;
+    return allModels.filter(function(m){ return all ? true : (m.text && (m.stable || /flash|pro/.test(m.id))); });
+  }
+  function renderPicker(){
+    var ul = $('models'), checkedBefore = {};
+    Array.prototype.forEach.call(ul.querySelectorAll('input'), function(i){ checkedBefore[i.value] = i.checked; });
+    ul.textContent = '';
+    visibleModels().forEach(function(m){
+      var li = document.createElement('li'), cb = document.createElement('input'), lb = document.createElement('label');
+      cb.type = 'checkbox'; cb.value = m.id; cb.id = 'm_' + m.id;
+      cb.checked = (m.id in checkedBefore) ? checkedBefore[m.id] : m.stable && m.text;
+      lb.htmlFor = cb.id; lb.textContent = m.id;
+      li.appendChild(cb); li.appendChild(lb); ul.appendChild(li);
+    });
+    updateCount();
+  }
+  function selected(){ return Array.prototype.map.call($('models').querySelectorAll('input:checked'), function(i){ return i.value; }); }
+  function updateCount(){
+    var n = selected().length, per = $('doSearch').checked ? 2 : 1;
+    $('count').textContent = n + ' selected, about ' + (n * per) + ' requests in total.';
+  }
+  $('models').addEventListener('change', updateCount);
+  $('doSearch').addEventListener('change', updateCount);
+  $('showAll').addEventListener('change', renderPicker);
+
+  // ---------- step 2: run tests ----------
+  function pill(t){ var s = document.createElement('span'); s.className = 'pill ' + t.state; s.textContent = t.label; return s; }
+  function renderResults(){
+    var box = $('results'); box.textContent = '';
+    order.forEach(function(id){
+      var r = results[id]; if (!r) return;
+      var div = document.createElement('div'), h = document.createElement('h3'), tests = document.createElement('div');
+      div.className = 'result'; h.textContent = id; tests.className = 'tests';
+      [['plain','Plain answer'],['search','Web search']].forEach(function(p){
+        var t = r[p[0]]; if (!t) return;
+        var row = document.createElement('div'); row.className = 't';
+        var name = document.createElement('span'); name.textContent = p[1] + ':';
+        var why = document.createElement('span'); why.className = 'why'; why.textContent = t.why || '';
+        row.appendChild(name); row.appendChild(pill(t)); row.appendChild(why); tests.appendChild(row);
+      });
+      div.appendChild(h); div.appendChild(tests); box.appendChild(div);
+    });
+  }
+  function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+
+  async function testOne(id, key, signal, withSearch){
+    var res = { plain:{state:'idle',label:'Testing…',why:''} }; results[id] = res; renderResults();
+    var r = await gfetch('models/' + encodeURIComponent(id) + ':generateContent', key,
+      { contents:[{ role:'user', parts:[{ text:'Reply with the single word: OK' }] }] }, signal);
+    res.plain = classify(r, false); renderResults();
+    if (res.plain.fatal) return res.plain;
+    if (withSearch && res.plain.state === 'pass'){
+      res.search = { state:'idle', label:'Testing…', why:'' }; renderResults();
+      await sleep(600);
+      var r2 = await gfetch('models/' + encodeURIComponent(id) + ':generateContent', key,
+        { contents:[{ role:'user', parts:[{ text:'Use web search to find one football news headline from this week. Answer in one sentence.' }] }],
+          tools:[{ google_search:{} }] }, signal);
+      res.search = classify(r2, true); renderResults();
+      if (res.search.fatal) return res.search;
+    } else if (withSearch){
+      res.search = { state:'idle', label:'Skipped', why:'The plain test did not pass', ms:0 }; renderResults();
+    }
+    return null;
+  }
+
+  $('run').addEventListener('click', async function(){
+    var key = $('key').value.trim(), ids = selected();
+    if (!key || !ids.length){ $('progress').textContent = !key ? 'Paste your key first.' : 'Tick at least one model.'; return; }
+    running = true; abortCtl = new AbortController(); results = {}; order = ids.slice();
+    $('run').disabled = true; $('stop').disabled = false; $('out').hidden = false; $('verdict').textContent = '';
+    var withSearch = $('doSearch').checked, fatal = null, done = 0;
+    try {
+    for (var i = 0; i < ids.length && running; i++){
+      $('progress').textContent = 'Testing ' + (i + 1) + ' of ' + ids.length + ': ' + ids[i];
+      try { fatal = await testOne(ids[i], key, abortCtl.signal, withSearch); }
+      catch (e){
+        if (e && e.name === 'AbortError') break;
+        results[ids[i]] = { plain:{ state:'fail', label:'No reply', why:'Could not reach Google (' + (e && e.message ? e.message : 'network error') + ')' } }; renderResults();
+      }
+      done++;
+      if (fatal){ $('progress').textContent = 'Stopped: Google rejected the key. ' + fatal.why; break; }
+      await sleep(700);
+    }
+    } catch (e) {
+      $('progress').textContent = 'Something went wrong: ' + (e && e.message ? e.message : e);
+    }
+    if (!fatal) $('progress').textContent = running ? 'Finished ' + done + ' of ' + ids.length + '.' : 'Stopped after ' + done + ' of ' + ids.length + '.';
+    running = false; $('run').disabled = false; $('stop').disabled = true; verdict();
+  });
+  $('stop').addEventListener('click', function(){ running = false; if (abortCtl) abortCtl.abort(); });
+
+  function verdict(){
+    var good = order.filter(function(id){ var r = results[id]; return r && r.plain && r.plain.state === 'pass' && r.search && r.search.state === 'pass'; });
+    var plainOnly = order.filter(function(id){ var r = results[id]; return r && r.plain && r.plain.state === 'pass' && good.indexOf(id) === -1; });
+    var v = $('verdict'); v.textContent = '';
+    var box = document.createElement('div'); box.className = 'verdict';
+    var h = document.createElement('h3'), p = document.createElement('p'); box.appendChild(h); box.appendChild(p);
+    function code(t){ var c = document.createElement('code'); c.textContent = t; return c; }
+    if (good.length){
+      var primary = good.filter(function(id){ return !/lite/.test(id); })[0] || good[0];
+      var backup = good.filter(function(id){ return id !== primary; })[0] || plainOnly[0] || '';
+      h.textContent = 'Use these in Vercel';
+      p.appendChild(document.createTextNode('GEMINI_MODEL = ')); p.appendChild(code(primary));
+      if (backup){ p.appendChild(document.createElement('br')); p.appendChild(document.createTextNode('GEMINI_FALLBACK_MODEL = ')); p.appendChild(code(backup)); }
+    } else if (plainOnly.length){
+      h.textContent = 'Answers work, but no model passed with web search';
+      p.textContent = 'These models answered: ' + plainOnly.join(', ') + '. Without web search the site cannot check live football news.';
+    } else {
+      h.textContent = 'No model passed';
+      p.textContent = 'See the reasons above. "Limit reached" usually means wait or turn on billing; "Not available" means pick another model.';
+    }
+    v.appendChild(box);
+  }
+
+  $('copy').addEventListener('click', async function(){
+    var lines = order.map(function(id){
+      var r = results[id] || {}; var a = r.plain ? r.plain.label + (r.plain.why ? ' (' + r.plain.why + ')' : '') : '-'; var b = r.search ? r.search.label + (r.search.why ? ' (' + r.search.why + ')' : '') : '-';
+      return id + '\n  plain: ' + a + '\n  search: ' + b;
+    });
+    try { await navigator.clipboard.writeText(lines.join('\n')); $('copy').textContent = 'Copied'; setTimeout(function(){ $('copy').textContent = 'Copy results'; }, 1500); }
+    catch (e){ $('copy').textContent = 'Copy failed, select the text instead'; }
+  });
+})();
+</script>
+</body>
+</html>
