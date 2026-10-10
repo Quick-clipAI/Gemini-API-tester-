@@ -54,6 +54,9 @@ ul.models label{flex:1;min-width:0;font:14px var(--mono);overflow-wrap:anywhere}
 .pill.warn{background:var(--warn-bg);color:var(--warn)}
 .pill.idle{background:var(--idle-bg);color:var(--idle)}
 .t .why{color:var(--ink2);flex:1 1 200px;overflow-wrap:anywhere}
+.t details{flex-basis:100%}
+.t details pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.4 var(--mono);background:var(--bg);border:1px solid var(--line);padding:8px;border-radius:6px;margin:6px 0 0}
+.t summary{font-weight:500;color:var(--ink2);font-size:13px}
 .verdict{border:2px solid var(--accent);border-radius:10px;padding:14px;margin-top:14px}
 .verdict h3{margin:0 0 6px;font-size:16px}
 .verdict code{font-family:var(--mono);background:var(--bg);padding:2px 6px;border-radius:5px;overflow-wrap:anywhere}
@@ -100,7 +103,7 @@ summary{cursor:pointer;font-weight:600}
     <div class="row"><button id="copy" type="button">Copy results</button></div>
     <details>
       <summary>How to read the results</summary>
-      <p class="note"><strong>Works</strong>: the model answered. <strong>Not available</strong>: Google no longer serves it, or not to this key. <strong>Limit reached</strong>: it exists but this key has no requests left for it today, or no free quota at all. <strong>Rejected</strong>: Google refused the request (the reason is shown). <strong>Answered, no search</strong>: it replied but did not use web search.</p>
+      <p class="note"><strong>Works</strong>: the model answered. <strong>Not available</strong>: Google no longer serves it, or not to this key. <strong>Limit reached</strong>: Google refused because of a quota. The line says which quota, and the Full reply from Google shows the exact message, so you can tell a per-minute limit from a per-day limit or a search-only limit. <strong>Rejected</strong>: Google refused the request (the reason is shown). <strong>Answered, no search</strong>: it replied but did not use web search.</p>
     </details>
   </section>
 </main>
@@ -126,6 +129,20 @@ summary{cursor:pointer;font-weight:600}
     return { status: res.status, json: json, ms: Math.round(performance.now() - t0) };
   }
 
+  function rawOf(r){ try { return JSON.stringify(r.json && r.json.error ? r.json.error : r.json, null, 2).slice(0, 2500); } catch (e) { return ''; } }
+  // Google's quota errors say WHICH quota was hit (per-day, per-minute, grounding...). Pull that out.
+  function quotaInfo(json){
+    var out = { metrics: [], retry: '', zero: false }, d = json && json.error && json.error.details;
+    if (Array.isArray(d)) d.forEach(function(x){
+      if (x && Array.isArray(x.violations)) x.violations.forEach(function(v){
+        var s = String(v.quotaMetric || '').replace('generativelanguage.googleapis.com/','') + (v.quotaId ? ' / ' + v.quotaId : '');
+        if (v.quotaDimensions && v.quotaDimensions.model) s += ' / model ' + v.quotaDimensions.model;
+        if (s.trim()) out.metrics.push(s); if (String(v.quotaValue) === '0') out.zero = true;
+      });
+      if (x && x.retryDelay) out.retry = x.retryDelay;
+    });
+    return out;
+  }
   function errMsg(json){ return (json && json.error && json.error.message) ? String(json.error.message).replace(/\s+/g,' ').slice(0,220) : ''; }
 
   function classify(r, wantSearch){
@@ -144,8 +161,9 @@ summary{cursor:pointer;font-weight:600}
     }
     if (s === 404) return { state:'fail', label:'Not available', why:m || 'Model not found for this key', ms:r.ms };
     if (s === 429){
-      var zero = /limit:\s*0/i.test(m) || /free tier.*not available|billing/i.test(m);
-      return { state:'warn', label:'Limit reached', why:(zero ? 'No free quota for this model on this key. ' : 'Used up for now. ') + m, ms:r.ms };
+      var q = quotaInfo(r.json);
+      var head = q.metrics.length ? 'Quota hit: ' + q.metrics.join(' | ') : 'Google reports a quota was hit, but did not say which one. Open the full reply.';
+      return { state:'warn', label:'Limit reached', why: head + (q.zero ? ' (limit is 0 for this key)' : '') + (q.retry ? ' · retry after ' + q.retry : ''), raw: rawOf(r), ms:r.ms };
     }
     if (s === 400 || s === 422) return { state:'fail', label:'Rejected', why:m || ('HTTP ' + s), ms:r.ms };
     if (s === 401 || s === 403) return { state:'fail', label:'Key problem', why:m || ('HTTP ' + s), ms:r.ms, fatal:true };
@@ -222,7 +240,9 @@ summary{cursor:pointer;font-weight:600}
         var row = document.createElement('div'); row.className = 't';
         var name = document.createElement('span'); name.textContent = p[1] + ':';
         var why = document.createElement('span'); why.className = 'why'; why.textContent = t.why || '';
-        row.appendChild(name); row.appendChild(pill(t)); row.appendChild(why); tests.appendChild(row);
+        row.appendChild(name); row.appendChild(pill(t)); row.appendChild(why);
+        if (t.raw){ var det = document.createElement('details'), sm = document.createElement('summary'), pre = document.createElement('pre'); sm.textContent = 'Full reply from Google'; pre.textContent = t.raw; det.appendChild(sm); det.appendChild(pre); row.appendChild(det); }
+        tests.appendChild(row);
       });
       div.appendChild(h); div.appendChild(tests); box.appendChild(div);
     });
@@ -233,7 +253,7 @@ summary{cursor:pointer;font-weight:600}
     var res = { plain:{state:'idle',label:'Testing…',why:''} }; results[id] = res; renderResults();
     var r = await gfetch('models/' + encodeURIComponent(id) + ':generateContent', key,
       { contents:[{ role:'user', parts:[{ text:'Reply with the single word: OK' }] }] }, signal);
-    res.plain = classify(r, false); renderResults();
+    res.plain = classify(r, false); if (res.plain.state !== 'pass' && !res.plain.raw) res.plain.raw = rawOf(r); renderResults();
     if (res.plain.fatal) return res.plain;
     if (withSearch && res.plain.state === 'pass'){
       res.search = { state:'idle', label:'Testing…', why:'' }; renderResults();
@@ -241,7 +261,7 @@ summary{cursor:pointer;font-weight:600}
       var r2 = await gfetch('models/' + encodeURIComponent(id) + ':generateContent', key,
         { contents:[{ role:'user', parts:[{ text:'Use web search to find one football news headline from this week. Answer in one sentence.' }] }],
           tools:[{ google_search:{} }] }, signal);
-      res.search = classify(r2, true); renderResults();
+      res.search = classify(r2, true); if (res.search.state !== 'pass' && !res.search.raw) res.search.raw = rawOf(r2); renderResults();
       if (res.search.fatal) return res.search;
     } else if (withSearch){
       res.search = { state:'idle', label:'Skipped', why:'The plain test did not pass', ms:0 }; renderResults();
@@ -301,7 +321,7 @@ summary{cursor:pointer;font-weight:600}
   $('copy').addEventListener('click', async function(){
     var lines = order.map(function(id){
       var r = results[id] || {}; var a = r.plain ? r.plain.label + (r.plain.why ? ' (' + r.plain.why + ')' : '') : '-'; var b = r.search ? r.search.label + (r.search.why ? ' (' + r.search.why + ')' : '') : '-';
-      return id + '\n  plain: ' + a + '\n  search: ' + b;
+      return id + '\n  plain: ' + a + (r.plain && r.plain.raw ? '\n    raw: ' + r.plain.raw.replace(/\s+/g,' ') : '') + '\n  search: ' + b + (r.search && r.search.raw ? '\n    raw: ' + r.search.raw.replace(/\s+/g,' ') : '');
     });
     try { await navigator.clipboard.writeText(lines.join('\n')); $('copy').textContent = 'Copied'; setTimeout(function(){ $('copy').textContent = 'Copy results'; }, 1500); }
     catch (e){ $('copy').textContent = 'Copy failed, select the text instead'; }
